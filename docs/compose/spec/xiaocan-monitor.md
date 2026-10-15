@@ -1,14 +1,31 @@
 ---
 feature: xiaocan-monitor
-status: in-progress
-updated: 2026-10-15
+status: delivered
+updated: 2026-10-16
 branch: main
-commits: 
+commits: d146c68..6f96c82
 ---
 
 # 小蚕余量监控 CLI
 
 ## Report
+
+**What was built** — 一个仅用标准库的 Python CLI（`python -m xiaocan_monitor`），用于盯守小蚕（`gw.xiaocantech.com`）满减活动余量。命令集为最小集 `search`（关键词搜店、列出 `store_id`）、`add`/`remove`（交互式增删监控，存 `data/monitors.json`）、`run`（cron 入口）。`run` 对每个启用监控按店名调 4.2 搜索，本地按 `store_id`（及可选平台）过滤，判断「中国大陆时区当前时段内且 `left>0`」；一旦可点即通过钉钉自定义机器人（加签）推送 **一次**，并按中国时区日期标记，当天后续 `run` 直接跳过该店、不再请求接口。程序自主使用 `Asia/Shanghai`（无 tzdata 回退固定 UTC+8），与服务器本地时区无关。
+
+**防封控** — 任意两次接口请求间隔由 `.env` 的 `XIAOCAN_MIN_REQUEST_INTERVAL`（默认 3s，数量不限）约束，状态持久化在 `data/state.json`；`RateLimiter.wait()` 的「读取→sleep→写回」全程持有一个跨进程互斥锁文件（`O_CREAT|O_EXCL`），保证 cron 重叠或多进程并发下也不会突发短间隔请求。`run` 另有一把单机 `RunLock`，并发第二个进程以退出码 `3` 退出。协议（固定头、`X-Nami`、`X-Ashe` 签名、gzip/deflate 解码、`401/403/405/429` 停止重试）与仓库内三个测试脚本逐字对齐。
+
+**Verification** —
+- `python -m py_compile xiaocan_monitor\*.py` → PASS（逐文件）。
+- `python -m unittest discover -s tests -t .` → PASS，`Ran 84 tests ... OK (skipped=1)`（跳过项为 Windows 上的死 PID 探测）。
+- `python -m xiaocan_monitor --version` → `xiaocan_monitor 0.1.0`。
+- `python -m xiaocan_monitor run --dry-run`（无监控）→ 退出码 0。
+- `python -m xiaocan_monitor run`（未配置 webhook）→ 退出码 2。
+- 真实网关调用：未执行（遵循限流/防风控要求）；协议正确性由与测试脚本对照的固定向量单测覆盖。
+
+**Journey log** —
+- 首次实现后独立评审发现限流器「读-改-写」非原子（并发可同时放行），是唯一 critical；改为 `O_CREAT|O_EXCL` 跨进程互斥 + sleep 后重读，并补并发测试（去掉互斥后该测试会失败）。
+- Windows 上 `os.kill(pid, 0)` 实测会破坏后续线程创建，`RunLock` 的 PID 存活探测因此改为仅 POSIX 生效，Windows 仅按 mtime 判陈旧。
+- `msvcrt.locking` 跨线程实测死锁，故跨进程互斥改用可移植的独占创建锁文件方案（POSIX/Windows 皆可）。
 
 ## [S1] Problem
 
@@ -225,11 +242,11 @@ cp .env.example .env   # 填写 XIAOCAN_DINGTALK_* 等
 
 ## Tasks
 
-- [ ] T1: `.env` 解析 + Settings + 中国时区 + 持久化限流 — acceptance: `load_settings` 体现「环境变量 > .env > 默认」优先级；`cn_now()` 在服务器任意时区下返回 `Asia/Shanghai`（无 tzdata 时回退 UTC+8）；`RateLimiter.wait()` 在注入假时钟下保证相邻请求间隔 ≥ 阈值并写回状态 (covers: S2.2, S2.5)
-- [ ] T2: RPC 客户端与搜索/卡片归一化 — acceptance: 用固定时间戳/指纹对 `SilkwormRec.RecService.SearchStorePromotionList` 生成的签名与测试脚本算法一致；`expand_promotion` 对样例 payload 生成受 `*_status` 约束的 Offers；`window_contains` 覆盖普通/跨零点/相等/缺失四种情形 (covers: S2.3, S2.4)
-- [ ] T3: 持久化层 — acceptance: `Store` 能原子读写 `monitors.json`/`state.json`，`mark_done` 保留其它键，损坏文件返回可读错误；不残留临时文件 (covers: S2.4)
-- [ ] T4: 钉钉加签推送 — acceptance: 构造的加签 URL 与钉钉官方算法一致（可用固定 key/时间戳断言）；`errcode != 0` 视为失败；异常与日志不泄露 secret (covers: S2.6)
-- [ ] T5: run 判定引擎 — acceptance: 注入假搜索与假推送后，可点状态触发**一次**推送并写入当日标记；当天第二次 run 直接跳过且不请求接口；`left==0` 或窗外不推送；`--dry-run` 不推送不落盘 (covers: S2.7)
-- [ ] T6: CLI 与互斥锁 — acceptance: `search/add/remove/run` 可用；`add`/`remove` 交互式；退出码符合 S2.8；并发 `run` 第二个以码 `3` 退出 (covers: S2.8, S2.9)
-- [ ] T7: 单元测试 — acceptance: `python -m unittest discover -s tests` 全部通过且不访问网络 (covers: S2.3–S2.7; depends: T1,T2,T3,T4,T5)
-- [ ] T8: 仓库卫生与部署说明 — acceptance: `.gitignore` 生效（`.env`/`data/` 不被跟踪）；`.env.example` 列出全部键；cron 用法写入本文件 S2.10 (covers: S2.1, S2.10)
+- [x] T1: `.env` 解析 + Settings + 中国时区 + 持久化限流 — acceptance: `load_settings` 体现「环境变量 > .env > 默认」优先级；`cn_now()` 在服务器任意时区下返回 `Asia/Shanghai`（无 tzdata 时回退 UTC+8）；`RateLimiter.wait()` 在注入假时钟下保证相邻请求间隔 ≥ 阈值并写回状态 (covers: S2.2, S2.5)
+- [x] T2: RPC 客户端与搜索/卡片归一化 — acceptance: 用固定时间戳/指纹对 `SilkwormRec.RecService.SearchStorePromotionList` 生成的签名与测试脚本算法一致；`expand_promotion` 对样例 payload 生成受 `*_status` 约束的 Offers；`window_contains` 覆盖普通/跨零点/相等/缺失四种情形 (covers: S2.3, S2.4)
+- [x] T3: 持久化层 — acceptance: `Store` 能原子读写 `monitors.json`/`state.json`，`mark_done` 保留其它键，损坏文件返回可读错误；不残留临时文件 (covers: S2.4)
+- [x] T4: 钉钉加签推送 — acceptance: 构造的加签 URL 与钉钉官方算法一致（可用固定 key/时间戳断言）；`errcode != 0` 视为失败；异常与日志不泄露 secret (covers: S2.6)
+- [x] T5: run 判定引擎 — acceptance: 注入假搜索与假推送后，可点状态触发**一次**推送并写入当日标记；当天第二次 run 直接跳过且不请求接口；`left==0` 或窗外不推送；`--dry-run` 不推送不落盘 (covers: S2.7)
+- [x] T6: CLI 与互斥锁 — acceptance: `search/add/remove/run` 可用；`add`/`remove` 交互式；退出码符合 S2.8；并发 `run` 第二个以码 `3` 退出 (covers: S2.8, S2.9)
+- [x] T7: 单元测试 — acceptance: `python -m unittest discover -s tests` 全部通过且不访问网络 (covers: S2.3–S2.7; depends: T1,T2,T3,T4,T5)
+- [x] T8: 仓库卫生与部署说明 — acceptance: `.gitignore` 生效（`.env`/`data/` 不被跟踪）；`.env.example` 列出全部键；cron 用法写入本文件 S2.10 (covers: S2.1, S2.10)
