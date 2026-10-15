@@ -78,12 +78,14 @@ def _ask_confirm(label: str) -> bool:
     return raw.strip().lower() in ("y", "yes", "是")
 
 
-def _make_client(settings: Settings, store: Store) -> RpcClient:
+def _make_client(settings: Settings, store: Store, verbose: bool = False) -> RpcClient:
     limiter = RateLimiter(store, settings.min_request_interval)
+    logger = print if verbose else (lambda *a, **k: None)
     return RpcClient(
         timeout=settings.request_timeout,
         retries=settings.retries,
         limiter=limiter,
+        logger=logger,
     )
 
 
@@ -237,7 +239,7 @@ def cmd_run(settings: Settings, args) -> int:
         print("未配置 XIAOCAN_DINGTALK_WEBHOOK，无法推送；如需仅查看结果请加 --dry-run。")
         return EXIT_USAGE
 
-    client = _make_client(settings, store)
+    client = _make_client(settings, store, verbose=args.verbose)
 
     def search_fn(keyword, lat, lon, city, number):
         return api_search(client, keyword, lat, lon, city, number)

@@ -3,6 +3,7 @@
 
 import json
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -133,6 +134,13 @@ class RunLockTest(unittest.TestCase):
             self.assertEqual(
                 self.path.read_text(encoding="utf-8").strip(), str(os.getpid())
             )
+        self.assertFalse(self.path.exists())
+
+    @unittest.skipIf(sys.platform == "win32", "Windows 上 os.kill(pid, 0) 语义不可靠")
+    def test_dead_pid_reclaims(self):
+        self.path.write_text("999999999", encoding="utf-8")
+        with RunLock(self.path, stale_seconds=10**9) as lock:
+            self.assertTrue(lock._owned)
         self.assertFalse(self.path.exists())
 
 

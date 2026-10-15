@@ -4,11 +4,16 @@
 import base64
 import hashlib
 import hmac
+import tempfile
+import threading
+import time
 import unittest
 import urllib.parse
+from pathlib import Path
 
 from xiaocan_monitor import notify
 from xiaocan_monitor.ratelimit import RateLimiter
+from xiaocan_monitor.store import Store
 
 
 class _FakeStore:
@@ -69,6 +74,45 @@ class RateLimiterTest(unittest.TestCase):
         RateLimiter(store, 3.0, now=_Clock(50.0), sleep=sleeps.append).wait()
 
         self.assertEqual(sleeps, [])
+
+    def test_preserves_keys_written_during_sleep(self):
+        store = _FakeStore({"last_request_epoch": 100.0})
+
+        def fake_sleep(_seconds):
+            store.state["daily"] = {"x": "2026-10-15"}
+
+        RateLimiter(store, 3.0, now=_Clock(101.5), sleep=fake_sleep).wait()
+
+        self.assertEqual(store.state["daily"], {"x": "2026-10-15"})
+        self.assertEqual(store.state["last_request_epoch"], 101.5)
+
+
+class RateLimiterConcurrencyTest(unittest.TestCase):
+    def test_two_limiters_serialize_across_instances(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(Path(tmp) / "monitors.json", Path(tmp) / "state.json")
+            interval = 0.3
+            return_times = {}
+            barrier = threading.Barrier(2)
+
+            def worker(name, limiter):
+                barrier.wait()
+                limiter.wait()
+                return_times[name] = time.time()
+
+            threads = [
+                threading.Thread(target=worker, args=("a", RateLimiter(store, interval))),
+                threading.Thread(target=worker, args=("b", RateLimiter(store, interval))),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+            self.assertTrue(all(not thread.is_alive() for thread in threads))
+            self.assertEqual(set(return_times), {"a", "b"})
+
+            gap = abs(return_times["a"] - return_times["b"])
+            self.assertGreaterEqual(gap, interval * 0.8)
 
 
 class NotifySignTest(unittest.TestCase):

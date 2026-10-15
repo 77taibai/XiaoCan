@@ -209,6 +209,22 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(notifier.calls, [])
         self.assertEqual(self.store.load_state()["daily"], {})
 
+    def test_missing_window_logs_warn_and_is_orderable(self):
+        self._add_monitor()
+        logs = []
+        outcomes = run_cycle(
+            store=self.store,
+            search_fn=self._search(
+                [_card([_offer(1, 3)], start=None, end=None)], _ok_result(), []
+            ),
+            notifier=_FakeNotifier(),
+            now=NOW,
+            log=logs.append,
+        )
+
+        self.assertTrue(any("WARN" in message for message in logs))
+        self.assertEqual(outcomes[0].status, "hit")
+
 
 if __name__ == "__main__":
     unittest.main()

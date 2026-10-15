@@ -50,6 +50,7 @@ tests/               # unittest，无网络
 - `data/monitors.json`：监控清单（用户数据）。
 - `data/state.json`：当日已完成标记 + 上次请求时间戳（运行时状态）。
 - `data/xiaocan.lock`：run 互斥锁（运行时临时文件）。
+- `data/state.json.ratelimit.lock`：限流跨进程互斥锁（运行时临时文件）。
 
 `.env` 位于项目根（包的上一级目录），可用环境变量 `XIAOCAN_ENV_FILE` 指向其他路径。
 
@@ -141,7 +142,9 @@ tests/               # unittest，无网络
 2. 若 `now - last < min_interval`，`sleep(min_interval - (now - last))`；
 3. 将 `last_request_epoch = now` 写回 `state.json`（原子写）。
 
-使用墙钟 `time.time()` 以跨进程生效，因此即使 cron 重叠或多进程并发，任意两次请求间隔也不会小于阈值。失败/重试的尝试同样占用并更新时间戳。`min_interval` 来自 `.env`，默认 3s，无单轮请求数量上限。
+「读取 → sleep → 写回」全程持有一个跨进程互斥锁文件（`O_CREAT|O_EXCL` 独占创建 `data/state.json.ratelimit.lock`，带陈旧超时回收），因此即使 cron 重叠或多进程并发，也不会有两个请求同时读到旧时间戳而同时放行。使用墙钟 `time.time()` 以跨进程生效。
+
+失败/重试的尝试同样占用并更新时间戳；sleep 结束后重新读取状态再写回，避免覆盖并发写入的当日标记。`min_interval` 来自 `.env`，默认 3s，无单轮请求数量上限。
 
 为便于测试，时钟与 `sleep` 可注入。
 
@@ -191,13 +194,13 @@ tests/               # unittest，无网络
 退出码：
 - `0`：正常完成。
 - `1`：`run` 中有监控查询/推送失败（业务失败或网络失败），或 `search` 业务失败。
-- `2`：参数或配置错误（如 `run` 时未配置钉钉但需要推送、清单文件损坏）。
+- `2`：参数或配置错误（如 `run` 非 `--dry-run` 但未配置钉钉 webhook、清单文件损坏）。
 - `3`：另一次 `run` 正在执行（未取得互斥锁）。
 
 ### [S2.9] 单机互斥锁
 
 `run` 启动时以 `O_CREAT|O_EXCL` 创建 `data/xiaocan.lock` 并写入 PID；退出（含异常）时删除。
-- 已存在锁：若 PID 不存活或锁文件 `mtime` 超过 15 分钟 → 视为陈旧，覆盖；否则打印提示并以退出码 `3` 结束。
+- 已存在锁：若 PID 不存活或锁文件 `mtime` 超过 15 分钟 → 视为陈旧，覆盖；否则打印提示并以退出码 `3` 结束。（PID 存活探测仅在 POSIX 生效；Windows 仅按 `mtime` 判陈旧。）
 - 锁仅防止并发 run 破坏状态与放大请求；不做「距上次运行过近则跳过」（运行频率完全由 cron 决定）。
 
 ### [S2.10] 部署与 cron

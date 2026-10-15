@@ -91,7 +91,13 @@ class RunLock:
 
     @staticmethod
     def _pid_alive(pid):
-        """判断进程是否存活；未知时返回 None。"""
+        """判断进程是否存活；未知或非 POSIX 平台返回 None。
+
+        注意：Windows 上 ``os.kill(pid, 0)`` 行为异常（实测会破坏后续线程创建），
+        因此只在 POSIX 上做存活探测；其它平台仅依赖锁文件 mtime 判陈旧。
+        """
+        if os.name != "posix":
+            return None
         try:
             os.kill(pid, 0)
         except ProcessLookupError:

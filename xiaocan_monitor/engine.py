@@ -13,7 +13,7 @@ from typing import Callable, List, Optional, Tuple
 
 from .api import Card, Offer, rpc_error
 from .store import Monitor, Store
-from .timeutil import format_cn, minute_of_day
+from .timeutil import CN_TZ, format_cn, minute_of_day
 
 
 @dataclass
@@ -61,7 +61,11 @@ def build_hit_text(
 
 
 def _collect_matches(
-    monitor: Monitor, cards: List[Card], now_minute: int
+    monitor: Monitor,
+    cards: List[Card],
+    now_minute: int,
+    log: Callable[[str], None] = print,
+    tag: str = "",
 ) -> List[Tuple[Card, Offer]]:
     matched_cards = [c for c in cards if str(c.store_id) == str(monitor.store_id)]
     if monitor.platform:
@@ -72,6 +76,8 @@ def _collect_matches(
         ]
     result: List[Tuple[Card, Offer]] = []
     for card in matched_cards:
+        if card.start_minute is None or card.end_minute is None:
+            log(f"{tag} WARN 活动时段字段缺失，按全天处理")
         for offer in card.orderable_offers(now_minute):
             if monitor.platform == 0 or offer.platform == monitor.platform:
                 result.append((card, offer))
@@ -95,6 +101,8 @@ def run_cycle(
     monitors = [m for m in store.load_monitors() if m.enabled]
     state = store.load_state()
     daily = state.get("daily") if isinstance(state.get("daily"), dict) else {}
+    if now.tzinfo is not None:
+        now = now.astimezone(CN_TZ)
     today = now.strftime("%Y-%m-%d")
     now_minute = minute_of_day(now)
 
@@ -117,7 +125,7 @@ def run_cycle(
             log(f"{tag} FAIL  {err}")
             continue
 
-        matches = _collect_matches(monitor, cards, now_minute)
+        matches = _collect_matches(monitor, cards, now_minute, log, tag)
         if not matches:
             detail = "当前时段无可点余量"
             outcomes.append(Outcome(monitor, "waiting", detail))
