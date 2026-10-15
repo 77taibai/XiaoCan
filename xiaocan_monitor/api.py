@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """小蚕 4.2 搜索封装与 Card/Offer 归一化、时段判断。
 
-对齐仓库根目录测试脚本 xiaocan_store_track_test.py 的 do_search / expand_item。
+对齐 reference/ 目录测试脚本 xiaocan_store_track_test.py 的 do_search / expand_item。
 仅用标准库。
 """
 

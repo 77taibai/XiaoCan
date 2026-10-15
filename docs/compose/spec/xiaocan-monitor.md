@@ -42,7 +42,7 @@ commits: d146c68..6f96c82
 
 ### [S2.1] 组件与文件布局
 
-标准库实现，无第三方依赖。新增包 `xiaocan_monitor/`（与既有三个测试脚本同目录根）。
+标准库实现，无第三方依赖。程序包 `xiaocan_monitor/` 位于仓库根；接口文档与三个测试脚本作为参考资料放在 `reference/`。
 
 ```
 xiaocan_monitor/
@@ -59,6 +59,8 @@ xiaocan_monitor/
   engine.py          # run 一轮的纯逻辑（可注入依赖，便于测试）
   lock.py            # run 的单机互斥锁
 tests/               # unittest，无网络
+reference/           # 参考资料：小蚕HTTP接口文档.md 与三个 *_test.py
+docs/                # 本功能文档
 .env.example         # 配置模板
 .gitignore           # 忽略 .env / data/ / __pycache__ 等
 ```

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """小蚕网关 RPC 客户端：签名、请求头、压缩解压、退避重试。
 
-完全对齐仓库根目录测试脚本 xiaocan_search_test.py / xiaocan_store_track_test.py。
+完全对齐 reference/ 目录测试脚本 xiaocan_search_test.py / xiaocan_store_track_test.py。
 仅用标准库。
 """
 
