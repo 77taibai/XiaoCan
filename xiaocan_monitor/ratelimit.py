@@ -27,6 +27,7 @@ class _StateMutex:
             self.path.parent.mkdir(parents=True, exist_ok=True)
         except OSError:
             pass
+        deadline = time.time() + 30.0
         while True:
             try:
                 fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -37,12 +38,17 @@ class _StateMutex:
                 time.sleep(self.poll)
                 continue
             except OSError:
+                if time.time() > deadline:
+                    raise
                 time.sleep(self.poll)
                 continue
             try:
                 os.write(fd, str(os.getpid()).encode("utf-8"))
-            finally:
+            except OSError:
                 os.close(fd)
+                self._remove()
+                raise
+            os.close(fd)
             self._owned = True
             return self
 

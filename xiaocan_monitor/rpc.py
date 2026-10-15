@@ -158,6 +158,7 @@ class RpcClient:
                 self.limiter.wait()
 
             headers = build_headers(servername, methodname, city, self.nami)
+            self.logger(f"  -> {servername}.{methodname} x-City={city}")
             try:
                 status, enc, raw = self.http_post(headers, data, self.timeout)
             except (OSError, socket.timeout, http.client.HTTPException) as exc:

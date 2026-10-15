@@ -321,6 +321,9 @@ def main(argv=None) -> int:
     except StoreError as exc:
         print(f"配置/状态文件错误：{exc}")
         return EXIT_USAGE
+    except OSError as exc:
+        print(f"运行环境错误：{exc}")
+        return EXIT_USAGE
     except KeyboardInterrupt:
         print("\n已中断。")
         return 130
