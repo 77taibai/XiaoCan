@@ -1,0 +1,9 @@
+# 密钥与运行数据，勿入库
+.env
+data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
