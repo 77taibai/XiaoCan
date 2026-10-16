@@ -69,13 +69,24 @@ python3 -m xiaocan_monitor add
 python3 -m xiaocan_monitor run --dry-run
 ```
 
-配置定时任务（示例：每 5 分钟一轮）：
+配置定时任务（示例：每 5 分钟一轮）——直接调用仓库根目录的 `run.sh` 即可：
 
-```cron
-*/5 * * * * cd /opt/XiaoCan && /usr/bin/python3 -m xiaocan_monitor run >> data/cron.log 2>&1
+```bash
+chmod +x /opt/XiaoCan/run.sh   # 只需一次
 ```
 
-> 首次使用前请先 `mkdir -p data`（日志与状态文件都在 `data/` 下）。
+```cron
+*/5 * * * * /opt/XiaoCan/run.sh
+```
+
+`run.sh` 会自动完成以下工作，无需在 crontab 里 `cd`、拼 `python3` 路径或重定向日志：
+
+- 以脚本自身所在目录为项目根，不受 cron 默认 `$HOME` 工作目录影响；
+- 自动探测 `python3` / `python`（可用环境变量 `XIAOCAN_PYTHON` 指定）；
+- 自动创建 `data/` 与日志 `data/cron.log`，每轮写入带时间戳的开始/结束行，并在超过 5MB 时轮转为 `.1`；
+- 透传程序退出码；其中「另一次 `run` 正在执行(3)」收敛为 `0`，避免 cron 误发邮件。
+
+> 手动调试：`/opt/XiaoCan/run.sh --dry-run --verbose`（参数会原样传给 `xiaocan_monitor run`）。
 
 ---
 
