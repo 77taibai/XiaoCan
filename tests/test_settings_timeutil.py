@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from xiaocan_monitor import timeutil
+from xiaocan_monitor.proxy import ProxyError
 from xiaocan_monitor.settings import load_settings, parse_env_file
 
 
@@ -88,6 +89,48 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(
             settings.lock_path, (config.parent / "xiaocan.lock").resolve()
         )
+
+    def test_proxy_default_is_none(self):
+        settings = load_settings(env={"XIAOCAN_ENV_FILE": str(self.empty)})
+        self.assertEqual(settings.socks5_proxy, "")
+        self.assertIsNone(settings.proxy)
+
+    def test_proxy_from_file(self):
+        env_file = self.tmp / "proxy.env"
+        env_file.write_text(
+            "XIAOCAN_SOCKS5_PROXY=socks5h://user:pass@127.0.0.1:1080\n",
+            encoding="utf-8",
+        )
+        settings = load_settings(env={"XIAOCAN_ENV_FILE": str(env_file)})
+        self.assertEqual(settings.socks5_proxy, "socks5h://user:pass@127.0.0.1:1080")
+        self.assertIsNotNone(settings.proxy)
+        self.assertEqual(settings.proxy.host, "127.0.0.1")
+        self.assertEqual(settings.proxy.port, 1080)
+        self.assertEqual(settings.proxy.username, "user")
+        self.assertTrue(settings.proxy.remote_dns)
+
+    def test_process_env_proxy_overrides_file(self):
+        env_file = self.tmp / "proxy.env"
+        env_file.write_text(
+            "XIAOCAN_SOCKS5_PROXY=socks5://file:1\n", encoding="utf-8"
+        )
+        settings = load_settings(
+            env={
+                "XIAOCAN_ENV_FILE": str(env_file),
+                "XIAOCAN_SOCKS5_PROXY": "socks5://env:2",
+            }
+        )
+        self.assertEqual(settings.proxy.host, "env")
+        self.assertEqual(settings.proxy.port, 2)
+
+    def test_invalid_proxy_raises(self):
+        with self.assertRaises(ProxyError):
+            load_settings(
+                env={
+                    "XIAOCAN_ENV_FILE": str(self.empty),
+                    "XIAOCAN_SOCKS5_PROXY": "http://127.0.0.1:8080",
+                }
+            )
 
 
 class ParseEnvFileTest(unittest.TestCase):

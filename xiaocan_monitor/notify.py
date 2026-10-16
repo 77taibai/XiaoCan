@@ -13,6 +13,11 @@ import time
 import urllib.parse
 import urllib.request
 
+try:
+    from .proxy import Socks5Proxy
+except ImportError:  # 允许按文件路径直接导入
+    from proxy import Socks5Proxy
+
 
 def sign_params(secret: str, timestamp_ms: int) -> dict[str, str]:
     """按钉钉加签算法返回 {"timestamp": str, "sign": str}。"""
@@ -48,6 +53,28 @@ def default_post_json(url: str, payload: dict, timeout: float) -> dict:
     return json.loads(body)
 
 
+def make_post_json(proxy: "Socks5Proxy | None" = None):
+    """构造一个 post_json；传入 ``proxy`` 时钉钉请求经 SOCKS5 代理转发。"""
+    if proxy is None:
+        return default_post_json
+
+    opener = urllib.request.build_opener(proxy.https_handler())
+
+    def post_json(url: str, payload: dict, timeout: float) -> dict:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with opener.open(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8")
+        return json.loads(body)
+
+    return post_json
+
+
 class DingTalkNotifier:
     """钉钉 markdown 推送（加签模式）。"""
 
@@ -58,14 +85,15 @@ class DingTalkNotifier:
         title: str = "小蚕余量监控",
         *,
         timeout: float = 8.0,
-        post_json=default_post_json,
+        post_json=None,
         now_ms=None,
+        proxy: "Socks5Proxy | None" = None,
     ) -> None:
         self.webhook = webhook or ""
         self.secret = secret or ""
         self.title = title
         self.timeout = timeout
-        self._post_json = post_json
+        self._post_json = post_json if post_json is not None else make_post_json(proxy)
         self._now_ms = now_ms
 
     def configured(self) -> bool:

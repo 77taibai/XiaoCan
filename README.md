@@ -17,6 +17,7 @@
 - 钉钉自定义机器人**加签**推送；同一天同一店只推一次。
 - 防封控：跨进程持久化的最小请求间隔（默认 3s），失败/重试同样计入间隔。
 - 单机互斥：并发 `run` 只有一个执行，另一个直接退出。
+- 可选 **SOCKS5 代理**：网关 RPC 与钉钉推送均可经代理，便于海外服务器稳定访问。
 - 无第三方依赖；配置与密钥放在 `.env`。
 
 ---
@@ -104,6 +105,7 @@ chmod +x /opt/XiaoCan/run.sh   # 只需一次
 | `XIAOCAN_MIN_REQUEST_INTERVAL` | `3` | 任意两次接口请求的最小间隔（秒） |
 | `XIAOCAN_REQUEST_TIMEOUT` | `8` | 单次请求超时（秒） |
 | `XIAOCAN_RETRIES` | `1` | 传输层重试次数 |
+| `XIAOCAN_SOCKS5_PROXY` | 空 | 可选 SOCKS5 代理，如 `socks5h://127.0.0.1:1080`（空=直连） |
 | `XIAOCAN_DEFAULT_LAT` | `39.904200` | 默认纬度（search/add 定位默认值） |
 | `XIAOCAN_DEFAULT_LON` | `116.407400` | 默认经度 |
 | `XIAOCAN_DEFAULT_CITY` | `110100` | 默认城市行政编码（`x-City`） |
@@ -118,6 +120,24 @@ chmod +x /opt/XiaoCan/run.sh   # 只需一次
 1. 在钉钉群「群设置 → 智能群助手 → 添加机器人 → 自定义」创建机器人；
 2. 安全设置选择「**加签**」，复制 `SEC...` 密钥；
 3. 把 webhook 与密钥分别填入 `XIAOCAN_DINGTALK_WEBHOOK` 与 `XIAOCAN_DINGTALK_SECRET`。
+
+### SOCKS5 代理（可选）
+
+若服务器访问 `gw.xiaocantech.com` 或 `oapi.dingtalk.com` 不稳定，可让程序经一个 SOCKS5 代理出网。设置 `XIAOCAN_SOCKS5_PROXY` 即可，**网关 RPC 与钉钉推送都会走它**；留空表示直连。
+
+```dotenv
+# 无认证
+XIAOCAN_SOCKS5_PROXY=socks5h://127.0.0.1:1080
+# 用户名/密码（特殊字符用 URL 编码）
+XIAOCAN_SOCKS5_PROXY=socks5://user:pass@127.0.0.1:1080
+```
+
+- 支持 `socks5://` 与 `socks5h://`：`socks5h` 让**代理远端解析域名**（推荐，避免本机 DNS 泄露/污染），`socks5` 由本机解析后把 IP 交给代理；两者都可用（也可写 `socks://`）。
+- 仅支持 SOCKS5（含用户名/密码认证，RFC 1929）；不支持 HTTP 代理。
+- 也可省略方案直接写 `host:port`（默认端口 `1080`）。
+- 配置非法（如写成 `http://...`）时程序会以退出码 `2` 明确报错。
+
+> 用 `--verbose` 可观察每次请求；代理握手/建连失败会作为「网络异常」按 `XIAOCAN_RETRIES` 退避重试。
 
 ---
 

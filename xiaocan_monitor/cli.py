@@ -14,6 +14,7 @@ from .api import search as api_search
 from .engine import run_cycle
 from .lock import LockBusy, RunLock
 from .notify import DingTalkNotifier
+from .proxy import ProxyError
 from .ratelimit import RateLimiter
 from .rpc import RpcClient
 from .settings import Settings, load_settings
@@ -86,6 +87,7 @@ def _make_client(settings: Settings, store: Store, verbose: bool = False) -> Rpc
         retries=settings.retries,
         limiter=limiter,
         logger=logger,
+        proxy=settings.proxy,
     )
 
 
@@ -234,6 +236,7 @@ def cmd_run(settings: Settings, args) -> int:
         settings.dingtalk_secret,
         settings.dingtalk_title,
         timeout=settings.request_timeout,
+        proxy=settings.proxy,
     )
     if not args.dry_run and not notifier.configured():
         print("未配置 XIAOCAN_DINGTALK_WEBHOOK，无法推送；如需仅查看结果请加 --dry-run。")
@@ -304,7 +307,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
-    settings = load_settings()
+    try:
+        settings = load_settings()
+    except ProxyError as exc:
+        print(f"代理配置错误：{exc}")
+        return EXIT_USAGE
+
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -321,6 +329,9 @@ def main(argv=None) -> int:
     except StoreError as exc:
         print(f"配置/状态文件错误：{exc}")
         return EXIT_USAGE
+    except ProxyError as exc:
+        print(f"代理错误：{exc}")
+        return EXIT_FAIL
     except OSError as exc:
         print(f"运行环境错误：{exc}")
         return EXIT_USAGE

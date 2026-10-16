@@ -55,6 +55,13 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(code, 3)
 
+    def test_invalid_proxy_config_returns_usage_error(self):
+        env = self._env(XIAOCAN_SOCKS5_PROXY="http://127.0.0.1:8080")
+        with mock.patch.dict(os.environ, env, clear=True):
+            code = cli.main(["search", "示例门店A"])
+
+        self.assertEqual(code, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

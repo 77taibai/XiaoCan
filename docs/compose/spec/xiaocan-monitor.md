@@ -16,7 +16,7 @@ commits: d146c68..6f96c82
 
 **Verification** —
 - `python -m py_compile xiaocan_monitor\*.py` → PASS（逐文件）。
-- `python -m unittest discover -s tests -t .` → PASS，`Ran 84 tests ... OK (skipped=1)`（跳过项为 Windows 上的死 PID 探测）。
+- `python -m unittest discover -s tests -t .` → PASS，`Ran 112 tests ... OK (skipped=1)`（跳过项为 Windows 上的死 PID 探测；含 `tests/test_proxy.py` 的 SOCKS5 本地假代理握手/认证/回显与接线测试）。
 - `python -m xiaocan_monitor --version` → `xiaocan_monitor 0.1.0`。
 - `python -m xiaocan_monitor run --dry-run`（无监控）→ 退出码 0。
 - `python -m xiaocan_monitor run`（未配置 webhook）→ 退出码 2。
@@ -52,6 +52,7 @@ xiaocan_monitor/
   settings.py        # .env 解析 + 默认值 + Settings
   timeutil.py        # 中国时区（Asia/Shanghai，回退固定 UTC+8）
   ratelimit.py       # 跨进程持久化的最小请求间隔
+  proxy.py           # SOCKS5 代理握手与代理感知连接/处理器工厂
   rpc.py             # 签名 + HTTP RPC 客户端（对齐测试脚本）
   api.py             # 4.2 搜索封装 + Card/Offer 归一化与时段判断
   store.py           # monitors.json / state.json 读写（原子写）
@@ -85,6 +86,7 @@ docs/                # 本功能文档
 | `XIAOCAN_MIN_REQUEST_INTERVAL` | `3` | 任意两次请求最小间隔（秒） |
 | `XIAOCAN_REQUEST_TIMEOUT` | `8` | 单请求超时（秒） |
 | `XIAOCAN_RETRIES` | `1` | 传输层重试次数 |
+| `XIAOCAN_SOCKS5_PROXY` | 空 | 可选 SOCKS5 代理（空=直连），见 S2.11 |
 | `XIAOCAN_DEFAULT_LAT` | `39.904200` | 默认纬度（与测试脚本一致） |
 | `XIAOCAN_DEFAULT_LON` | `116.407400` | 默认经度 |
 | `XIAOCAN_DEFAULT_CITY` | `110100` | 默认 `x-City` 城市编码 |
@@ -233,12 +235,30 @@ cp .env.example .env   # 填写 XIAOCAN_DINGTALK_* 等
 ```
 `.gitignore` 忽略 `.env`、`data/`、`__pycache__/`、`.venv/`、`*.pyc`，避免密钥与运行状态入库。
 
+### [S2.11] SOCKS5 代理（可选）
+
+当服务器直连 `gw.xiaocantech.com` / `oapi.dingtalk.com` 不稳定时，可用 `XIAOCAN_SOCKS5_PROXY` 指定一个 SOCKS5 代理，**网关 RPC 与钉钉推送都会经它出网**；空值表示直连。
+
+`proxy.py`（仅标准库）提供：
+- `parse_proxy(value)`：解析 `socks5://[user:pass@]host[:port]`；`socks5h://` 由代理远端解析域名（ATYP=域名），`socks5://` 本机解析后发 IP；也可省略方案写 `host:port`（默认端口 `1080`）。非法方案/端口抛 `ProxyError`（`OSError` 子类）。
+- `Socks5Proxy.connect(host, port, timeout)`：连上代理后完成 RFC 1928 握手（版本协商 → 可选 RFC 1929 用户名/密码认证 → `CONNECT` 请求 → 解析应答），返回一条到目标的已连接 socket；任何失败抛 `ProxyError` 并关闭代理 socket。
+- `Socks5Proxy.https_connection(host, port, timeout, context)`：返回一个重写 `connect()` 的 `HTTPSConnection`，供 `http.client`（`rpc.post_once`）使用。
+- `Socks5Proxy.https_handler(context=None)`：返回一个重写 `https_open()` 的 `urllib.request` 处理器，供 `notify` 用 `build_opener` 发钉钉请求。
+
+接线：
+- `Settings` 新增 `socks5_proxy`（原始字符串）与 `proxy`（解析后的 `Socks5Proxy | None`）；解析失败在 CLI 启动时报「代理配置错误」并以退出码 `2` 结束。
+- `RpcClient(proxy=...)`：有代理时 `post_once(headers, data, timeout, proxy)` 经代理建连，否则直连。
+- `DingTalkNotifier(proxy=...)`：有代理时用 `make_post_json(proxy)`（内部 `build_opener(proxy.https_handler())`），否则沿用 `default_post_json`。
+
+代理握手/建连失败会作为普通网络异常（`OSError`）被 `RpcClient.call` 捕获，按 `2 * attempt` 秒退避重试，与直连一致。
+
 ## [S3] Out of Scope
 
 - 美团赏金接口 4.3/4.4、地址联想 4.5、4.1 列表分页、4.6 详情：本期监控只用 4.2 搜索。
 - 任何自动下单/抢购行为：仅监控 + 推送。
 - 除钉钉外的推送渠道（微信/邮件/Server酱等）。
 - Web UI、常驻后台服务、多机分布式协调（锁仅单机）。
+- HTTP/HTTPS 代理、代理自动切换/池化：仅支持单个 SOCKS5 代理（见 S2.11）。
 - 微信小程序登录态、付费/登录接口。
 - 运行频率调度本身（由 cron 负责；程序不做定时循环）。
 
@@ -252,3 +272,4 @@ cp .env.example .env   # 填写 XIAOCAN_DINGTALK_* 等
 - [x] T6: CLI 与互斥锁 — acceptance: `search/add/remove/run` 可用；`add`/`remove` 交互式；退出码符合 S2.8；并发 `run` 第二个以码 `3` 退出 (covers: S2.8, S2.9)
 - [x] T7: 单元测试 — acceptance: `python -m unittest discover -s tests` 全部通过且不访问网络 (covers: S2.3–S2.7; depends: T1,T2,T3,T4,T5)
 - [x] T8: 仓库卫生与部署说明 — acceptance: `.gitignore` 生效（`.env`/`data/` 不被跟踪）；`.env.example` 列出全部键；cron 用法写入本文件 S2.10 (covers: S2.1, S2.10)
+- [x] T9: SOCKS5 代理支持 — acceptance: `parse_proxy` 正确解析 `socks5://`/`socks5h://`/`user:pass`/IPv6/默认端口并对非法输入抛错；`Socks5Proxy.connect` 对本地假代理完成版本协商、可选认证与 `CONNECT` 应答；`rpc.post_once` 与 `notify` 在有代理时经代理出网、无代理时行为不变 (covers: S2.11; depends: T2,T4)

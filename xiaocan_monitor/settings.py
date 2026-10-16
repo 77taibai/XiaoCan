@@ -5,7 +5,9 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
+from typing import Mapping, Optional
+
+from .proxy import Socks5Proxy, parse_proxy
 
 DEFAULT_DINGTALK_TITLE = "小蚕余量监控"
 DEFAULT_MIN_REQUEST_INTERVAL = 3.0
@@ -84,6 +86,8 @@ class Settings:
     default_lat: float
     default_lon: float
     default_city: str
+    socks5_proxy: str
+    proxy: Optional[Socks5Proxy]
     config_path: Path
     state_path: Path
     lock_path: Path
@@ -121,6 +125,9 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     else:
         state_path = _abs(project_root() / "data" / "state.json")
 
+    proxy_value = lookup("XIAOCAN_SOCKS5_PROXY", "").strip()
+    proxy = parse_proxy(proxy_value) if proxy_value else None
+
     return Settings(
         dingtalk_webhook=lookup("XIAOCAN_DINGTALK_WEBHOOK", ""),
         dingtalk_secret=lookup("XIAOCAN_DINGTALK_SECRET", ""),
@@ -146,6 +153,8 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
             DEFAULT_LON,
         ),
         default_city=lookup("XIAOCAN_DEFAULT_CITY", DEFAULT_CITY),
+        socks5_proxy=proxy_value,
+        proxy=proxy,
         config_path=config_path,
         state_path=state_path,
         lock_path=_abs(config_path.parent / "xiaocan.lock"),

@@ -19,8 +19,14 @@ import zlib
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional, Tuple
 
+try:
+    from .proxy import Socks5Proxy
+except ImportError:  # 允许按文件路径直接导入
+    from proxy import Socks5Proxy
+
 GATEWAY_HOST = "gw.xiaocantech.com"
 GATEWAY_PATH = "/rpc"
+GATEWAY_PORT = 443
 
 BASE_HEADERS = {
     "Content-Type": "application/json",
@@ -98,9 +104,20 @@ def build_headers(
     return headers
 
 
-def post_once(headers: dict, data: bytes, timeout: float) -> Tuple[int, str, bytes]:
-    """发送一次 POST，返回 (http_status, content_encoding 小写, 原始字节)。"""
-    conn = http.client.HTTPSConnection(GATEWAY_HOST, timeout=timeout)
+def post_once(
+    headers: dict,
+    data: bytes,
+    timeout: float,
+    proxy: Optional[Socks5Proxy] = None,
+) -> Tuple[int, str, bytes]:
+    """发送一次 POST，返回 (http_status, content_encoding 小写, 原始字节)。
+
+    传入 ``proxy`` 时经 SOCKS5 代理建连；否则直连网关。
+    """
+    if proxy is None:
+        conn = http.client.HTTPSConnection(GATEWAY_HOST, timeout=timeout)
+    else:
+        conn = proxy.https_connection(GATEWAY_HOST, GATEWAY_PORT, timeout=timeout)
     try:
         conn.request("POST", GATEWAY_PATH, body=data, headers=headers)
         resp = conn.getresponse()
@@ -134,15 +151,23 @@ class RpcClient:
         limiter: Any = None,
         nami: Optional[str] = None,
         logger: Callable[[str], None] = print,
-        http_post: Callable[[dict, bytes, float], Tuple[int, str, bytes]] = post_once,
+        http_post: Optional[Callable[[dict, bytes, float], Tuple[int, str, bytes]]] = None,
         sleep: Callable[[float], None] = time.sleep,
+        proxy: Optional[Socks5Proxy] = None,
     ) -> None:
         self.timeout = timeout
         self.retries = retries
         self.limiter = limiter
         self.nami = nami or gen_nami()
         self.logger = logger
-        self.http_post = http_post
+        self.proxy = proxy
+        if http_post is None:
+            if proxy is None:
+                self.http_post = post_once
+            else:
+                self.http_post = lambda h, d, t: post_once(h, d, t, proxy=proxy)
+        else:
+            self.http_post = http_post
         self.sleep = sleep
 
     def call(
